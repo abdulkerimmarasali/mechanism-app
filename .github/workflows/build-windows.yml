@@ -1,1 +1,37 @@
+name: build-windows-exe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build (PyInstaller one-dir)
+        run: |
+          pyinstaller --noconfirm --clean --onedir --windowed ^
+            --name MechanismApp ^
+            src/main.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MechanismApp-Windows
+          path: dist/MechanismApp
 
