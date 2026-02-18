@@ -462,27 +462,24 @@ class App(QWidget):
         # MathText (matplotlib LaTeX-like)
         lines = [
             r"$\bf{Konum\ Denklemleri}$",
-            r"$D2 - (S + D1) + L1\cos(\theta_1) + L2\cos(\theta_2) = 0$",
-            r"$-(H1+H2) + L1\sin(\theta_1) + L2\sin(\theta_2) = 0$",
+            r"$D2-(S+D1)+L1\cos(\theta_1)+L2\cos(\theta_2)=0$",
+            r"$-(H1+H2)+L1\sin(\theta_1)+L2\sin(\theta_2)=0$",
             "",
             r"$\bf{H\i z\ (Jacobian)}$",
-            r"$J(\theta)\begin{bmatrix}\dot{\theta}_1\\ \dot{\theta}_2\end{bmatrix}="
-            r"\begin{bmatrix}\dot{S}\\0\end{bmatrix}$",
+            r"$J(\theta)\,[\dot{\theta}_1,\ \dot{\theta}_2]^T=[\dot{S},\ 0]^T$",
             "",
-            r"$\bf{\ddot{}\ \ (Ivme)}$",
-            r"$J(\theta)\begin{bmatrix}\ddot{\theta}_1\\ \ddot{\theta}_2\end{bmatrix}="
-            r"\begin{bmatrix}"
-            r"\ddot{S}+L1\dot{\theta}_1^2\cos\theta_1+L2\dot{\theta}_2^2\cos\theta_2\\"
-            r"L1\dot{\theta}_1^2\sin\theta_1+L2\dot{\theta}_2^2\sin\theta_2"
-            r"\end{bmatrix}$",
+            r"$\bf{Ivme}$",
+            r"$J(\theta)\,[\ddot{\theta}_1,\ \ddot{\theta}_2]^T=$",
+            r"$[\ddot{S}+L1\dot{\theta}_1^2\cos\theta_1+L2\dot{\theta}_2^2\cos\theta_2,\ "
+            r"L1\dot{\theta}_1^2\sin\theta_1+L2\dot{\theta}_2^2\sin\theta_2]^T$",
             "",
             r"$\bf{B\i cak\ Kinemati\u{g}i}$",
-            r"$\theta_{b\i cak}=\theta_2+\arctan\left(\frac{H2}{D2}\right)$",
-            r"$v=L_{b\i cak}\,\dot{\theta}_{b\i cak},\quad a_t=L_{b\i cak}\,\ddot{\theta}_{b\i cak},\quad a_n=L_{b\i cak}\,\dot{\theta}_{b\i cak}^2$",
+            r"$\theta_{b\i cak}=\theta_2+\arctan\!\left(\frac{H2}{D2}\right)$",
+            r"$v=L_{b\i cak}\dot{\theta}_{b\i cak},\quad a_t=L_{b\i cak}\ddot{\theta}_{b\i cak},\quad a_n=L_{b\i cak}\dot{\theta}_{b\i cak}^2$",
             "",
             r"$\bf{K\i sa\ Metod\ Ozeti}$",
-            r"Her zaman adiminda $\theta_1,\theta_2$ bilinmeyenleri konum denklemlerinden sayisal kok bulma ile cozulur.",
-            r"Ardindan hiz/ivme, Jacobian $J(\theta)$ uzerinden lineer denklem cozumuyle elde edilir.",
+            r"Her adimda $(\theta_1,\theta_2)$ konum denklemlerinden sayisal kok bulma ile cozulur.",
+            r"Hiz/ivme, Jacobian $J(\theta)$ ile olusan lineer denklem sistemlerinin cozulmesiyle elde edilir.",
         ]
 
         y = 0.95
@@ -490,7 +487,11 @@ class App(QWidget):
             ax.text(0.02, y, s, fontsize=12, va="top")
             y -= 0.07 if s != "" else 0.05
 
-        self.canvas_eq.fig.tight_layout()
+        try:
+            self.canvas_eq.fig.tight_layout()
+        except Exception:
+            pass
+
         lay.addWidget(self.canvas_eq, 1)
 
     # ----------------------------
