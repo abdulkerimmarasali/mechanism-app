@@ -1,3 +1,4 @@
+# src/main.py
 from __future__ import annotations
 
 import sys
@@ -25,12 +26,14 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QFileDialog,
     QSlider,
+    QTextBrowser,
 )
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
 from core import Params, StrokeCfg, simulate
+
 
 # ----------------------------
 # Helpers
@@ -88,6 +91,8 @@ class App(QWidget):
         self.sim_A = None
         self.sim_B = None
         self.sim_Tip = None
+        self.sim_xlim = None
+        self.sim_ylim = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(10, 10, 10, 10)
@@ -147,11 +152,10 @@ class App(QWidget):
         logo_path = resource_path("assets/roketsan_logo.png")
         if logo_path.exists():
             pix = QPixmap(str(logo_path))
-            # keep aspect ratio, fit height
             pix2 = pix.scaledToHeight(40, Qt.SmoothTransformation)
             self.logo.setPixmap(pix2)
         else:
-            self.logo.setText("Roketsan")
+            self.logo.setText("roketsan")
 
         title = QLabel("Mechanism Kinematic Analyzer (Teknik Demo)")
         title.setStyleSheet("font-weight:600; font-size: 14pt; color:#005F2C;")
@@ -159,7 +163,6 @@ class App(QWidget):
         lay.addWidget(self.logo, 0)
         lay.addWidget(title, 0)
         lay.addStretch(1)
-
         return lay
 
     # ----------------------------
@@ -175,6 +178,9 @@ class App(QWidget):
 
         box_geo = QGroupBox("Geometri")
         form_geo = QFormLayout(box_geo)
+        form_geo.setVerticalSpacing(6)
+        form_geo.setHorizontalSpacing(10)
+
         self.le_L1 = QLineEdit("28")
         self.le_L2 = QLineEdit("30.017")
         self.le_Ltip = QLineEdit("565")
@@ -183,26 +189,28 @@ class App(QWidget):
         form_geo.addRow("Bıçak Uzunluğu [mm]", self.le_Ltip)
         note = QLabel("Not: Bıçak uzunluğu O noktasından itibaren ölçülür.")
         note.setWordWrap(True)
-        note.setStyleSheet("color:#444;")
+        note.setStyleSheet("color:#444; font-weight:400;")
         form_geo.addRow(note)
 
         box_off = QGroupBox("Ofsetler")
         form_off = QFormLayout(box_off)
+        form_off.setVerticalSpacing(6)
+        form_off.setHorizontalSpacing(10)
+
         self.le_D1 = QLineEdit("9.042")
         self.le_D2 = QLineEdit("30")
         self.le_H1 = QLineEdit("26.5")
         self.le_H2 = QLineEdit("1")
-        self.lbl_Btot = QLabel("Toplam Yükseklik: 27.5 mm")
-        self.lbl_delta = QLabel("Bıçak Offset Açısı: atan(H2/D2)")
         form_off.addRow("A X-Ofset (D1) [mm]", self.le_D1)
         form_off.addRow("O X-Ofset (D2) [mm]", self.le_D2)
         form_off.addRow("H1 [mm]", self.le_H1)
         form_off.addRow("H2 [mm]", self.le_H2)
-        form_off.addRow(self.lbl_Btot)
-        form_off.addRow(self.lbl_delta)
 
         box_motion = QGroupBox("Hareket Tanımı")
         form_m = QFormLayout(box_motion)
+        form_m.setVerticalSpacing(6)
+        form_m.setHorizontalSpacing(10)
+
         self.le_t_end = QLineEdit("0.160")
         self.le_Nt = QLineEdit("3000")
         self.le_stroke = QLineEdit("50")
@@ -223,7 +231,7 @@ class App(QWidget):
 
         left_container = QWidget()
         left_container.setLayout(left)
-        left_container.setMaximumWidth(430)
+        left_container.setMaximumWidth(440)
 
         left.addWidget(box_geo)
         left.addWidget(box_off)
@@ -231,6 +239,12 @@ class App(QWidget):
         left.addLayout(btn_row)
         left.addWidget(self.lbl_status)
         left.addStretch(1)
+
+        # Make left panel scrollable so it never overlaps
+        left_scroll = QScrollArea()
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setWidget(left_container)
+        left_scroll.setMaximumWidth(470)
 
         # Right: mechanism image
         right = QVBoxLayout()
@@ -247,32 +261,17 @@ class App(QWidget):
         scroll.setWidget(self.img_label)
         right.addWidget(scroll, 1)
 
-        layout.addWidget(left_container, 0)
+        layout.addWidget(left_scroll, 0)
         layout.addLayout(right, 1)
 
-        self.le_H1.textChanged.connect(self._update_derived_labels)
-        self.le_H2.textChanged.connect(self._update_derived_labels)
-        self.le_D2.textChanged.connect(self._update_derived_labels)
-        self._update_derived_labels()
         self._load_mech_image()
-
-    def _update_derived_labels(self):
-        try:
-            h1 = float(self.le_H1.text().strip())
-            h2 = float(self.le_H2.text().strip())
-            d2 = float(self.le_D2.text().strip())
-            self.lbl_Btot.setText(f"Toplam Yükseklik: {h1 + h2:.3f} mm")
-            delta_deg = np.rad2deg(np.arctan2(h2, d2))
-            self.lbl_delta.setText(f"Bıçak Offset Açısı: atan(H2/D2) = {delta_deg:.3f}°")
-        except Exception:
-            self.lbl_Btot.setText("Toplam Yükseklik: ?")
-            self.lbl_delta.setText("Bıçak Offset Açısı: atan(H2/D2)")
 
     def _load_mech_image(self):
         img_path = resource_path("assets/mechanism.png")
         if img_path.exists():
             pix = QPixmap(str(img_path))
-            self.img_label.setPixmap(pix.scaledToWidth(820, Qt.SmoothTransformation))
+            # scale reasonably for the right pane
+            self.img_label.setPixmap(pix.scaledToWidth(920, Qt.SmoothTransformation))
         else:
             self.img_label.setText("assets/mechanism.png bulunamadı.")
 
@@ -345,7 +344,6 @@ class App(QWidget):
             QMessageBox.information(self, "Bilgi", "Önce hesaplama yapın.")
             return
         try:
-            # lazy import so app still opens if missing
             from openpyxl import Workbook
             from openpyxl.utils import get_column_letter
 
@@ -366,10 +364,9 @@ class App(QWidget):
             for r in rows:
                 ws.append(r)
 
-            # simple column autosize
             for c in range(1, len(headers) + 1):
                 col = get_column_letter(c)
-                ws.column_dimensions[col].width = max(12, min(28, len(headers[c - 1]) + 2))
+                ws.column_dimensions[col].width = max(12, min(30, len(headers[c - 1]) + 2))
 
             wb.save(path)
             QMessageBox.information(self, "Tamam", "Excel dosyası kaydedildi.")
@@ -377,7 +374,7 @@ class App(QWidget):
             QMessageBox.critical(self, "Hata", f"Excel export başarısız: {e}")
 
     # ----------------------------
-    # Tab: Simulation (slider controlled)
+    # Tab: Simulation (slider controlled) - FIXED VIEW + RAIL
     # ----------------------------
     def _build_tab_sim(self):
         lay = QVBoxLayout(self.tab_sim)
@@ -399,19 +396,26 @@ class App(QWidget):
         self.ax_sim = self.canvas_sim.fig.add_subplot(111)
         lay.addWidget(self.canvas_sim, 1)
 
-        # prepare artists
-        self.line_L2, = self.ax_sim.plot([], [], linewidth=3)  # O-B
-        self.line_L1, = self.ax_sim.plot([], [], linewidth=3)  # A-B
-        self.line_blade, = self.ax_sim.plot([], [], linewidth=4)  # B-Tip
+        self.ax_sim.set_aspect("equal", adjustable="box")
+        self.ax_sim.grid(True, alpha=0.12)
+        self.ax_sim.set_title("Mekanizma Simülasyonu (Slider Kontrollü)")
+        self.canvas_sim.fig.tight_layout()
+
+        # Artists (consistent colors)
+        self.line_rail, = self.ax_sim.plot([], [], linewidth=2, linestyle="--", alpha=0.35)
+
+        self.line_L2, = self.ax_sim.plot([], [], linewidth=4)   # O-B
+        self.line_L1, = self.ax_sim.plot([], [], linewidth=4)   # A-B
+        self.line_blade, = self.ax_sim.plot([], [], linewidth=6)  # B-Tip
+
         self.pt_O = self.ax_sim.scatter([], [], s=80)
         self.pt_A = self.ax_sim.scatter([], [], s=80)
         self.pt_B = self.ax_sim.scatter([], [], s=90)
         self.pt_T = self.ax_sim.scatter([], [], s=90)
 
-        self.ax_sim.set_aspect("equal", adjustable="box")
-        self.ax_sim.grid(True, alpha=0.15)
-        self.ax_sim.set_title("Mekanizma Simülasyonu (Slider Kontrollü)")
-        self.canvas_sim.fig.tight_layout()
+        # legend-like text (small)
+        self.ax_sim.text(0.01, 0.01, "O: Mavi | A: Turuncu | B: Yeşil | Tip: Kırmızı",
+                         transform=self.ax_sim.transAxes, fontsize=9, alpha=0.6)
 
     def _sim_update(self, k: int):
         if self.out is None or self.sim_A is None:
@@ -423,16 +427,38 @@ class App(QWidget):
         T = self.sim_Tip[k]
         O = np.array([0.0, 0.0])
 
+        # stable limits (do NOT rescale each frame)
+        if self.sim_xlim is not None and self.sim_ylim is not None:
+            self.ax_sim.set_xlim(*self.sim_xlim)
+            self.ax_sim.set_ylim(*self.sim_ylim)
+
+        # rail at y=0 across whole view
+        if self.sim_xlim is not None:
+            x0, x1 = self.sim_xlim
+            self.line_rail.set_data([x0, x1], [0.0, 0.0])
+
         # update lines
         self.line_L2.set_data([O[0], B[0]], [O[1], B[1]])
         self.line_L1.set_data([A[0], B[0]], [A[1], B[1]])
         self.line_blade.set_data([B[0], T[0]], [B[1], T[1]])
 
-        # update points (scatter needs offsets)
+        # points
         self.pt_O.set_offsets([O])
         self.pt_A.set_offsets([A])
         self.pt_B.set_offsets([B])
         self.pt_T.set_offsets([T])
+
+        # point styles (colors)
+        self.pt_O.set_color("#1f77b4")  # blue
+        self.pt_A.set_color("#ff7f0e")  # orange
+        self.pt_B.set_color("#2ca02c")  # green
+        self.pt_T.set_color("#d62728")  # red
+
+        # line colors: links gray, blade roketsan green
+        self.line_L1.set_color("#555555")
+        self.line_L2.set_color("#555555")
+        self.line_blade.set_color("#00843D")
+        self.line_rail.set_color("#888888")
 
         # info
         t = float(self.out["t"][k])
@@ -440,59 +466,60 @@ class App(QWidget):
         ang = float(np.rad2deg(self.out["theta_tip"][k]))
         self.sim_info.setText(f"t={t:.4f}s | Stroke={s:.2f}mm | Bıçak Açısı={ang:.2f}°")
 
-        # set view limits once (or keep stable)
-        xs = np.array([O[0], A[0], B[0], T[0]])
-        ys = np.array([O[1], A[1], B[1], T[1]])
-        pad = 0.15 * max(1.0, float(np.ptp(xs) + np.ptp(ys)))
-        self.ax_sim.set_xlim(xs.min() - pad, xs.max() + pad)
-        self.ax_sim.set_ylim(ys.min() - pad, ys.max() + pad)
-
         self.canvas_sim.draw()
 
     # ----------------------------
-    # Tab: Equations
+    # Tab: Equations (HTML, clean layout)
     # ----------------------------
     def _build_tab_equations(self):
         lay = QVBoxLayout(self.tab_eq)
 
-        self.canvas_eq = MplCanvas()
-        ax = self.canvas_eq.fig.add_subplot(111)
-        ax.axis("off")
+        box = QGroupBox("Denklemler (Sabit İvme Varsayımı)")
+        v = QVBoxLayout(box)
 
-        # MathText (matplotlib LaTeX-like)
-        lines = [
-            r"$\bf{Konum\ Denklemleri}$",
-            r"$D2-(S+D1)+L1\cos(\theta_1)+L2\cos(\theta_2)=0$",
-            r"$-(H1+H2)+L1\sin(\theta_1)+L2\sin(\theta_2)=0$",
-            "",
-            r"$\bf{H\i z\ (Jacobian)}$",
-            r"$J(\theta)\,[\dot{\theta}_1,\ \dot{\theta}_2]^T=[\dot{S},\ 0]^T$",
-            "",
-            r"$\bf{Ivme}$",
-            r"$J(\theta)\,[\ddot{\theta}_1,\ \ddot{\theta}_2]^T=$",
-            r"$[\ddot{S}+L1\dot{\theta}_1^2\cos\theta_1+L2\dot{\theta}_2^2\cos\theta_2,\ "
-            r"L1\dot{\theta}_1^2\sin\theta_1+L2\dot{\theta}_2^2\sin\theta_2]^T$",
-            "",
-            r"$\bf{B\i cak\ Kinemati\u{g}i}$",
-            r"$\theta_{b\i cak}=\theta_2+\arctan\!\left(\frac{H2}{D2}\right)$",
-            r"$v=L_{b\i cak}\dot{\theta}_{b\i cak},\quad a_t=L_{b\i cak}\ddot{\theta}_{b\i cak},\quad a_n=L_{b\i cak}\dot{\theta}_{b\i cak}^2$",
-            "",
-            r"$\bf{K\i sa\ Metod\ Ozeti}$",
-            r"Her adimda $(\theta_1,\theta_2)$ konum denklemlerinden sayisal kok bulma ile cozulur.",
-            r"Hiz/ivme, Jacobian $J(\theta)$ ile olusan lineer denklem sistemlerinin cozulmesiyle elde edilir.",
-        ]
+        tb = QTextBrowser()
+        tb.setOpenExternalLinks(False)
 
-        y = 0.95
-        for s in lines:
-            ax.text(0.02, y, s, fontsize=12, va="top")
-            y -= 0.07 if s != "" else 0.05
+        html = """
+        <div style="font-family:Segoe UI, Arial; font-size:12pt; line-height:1.55; padding:10px;">
+          <h2 style="margin:0 0 10px 0; color:#005F2C;">Konum Denklemleri</h2>
+          <div style="margin-left:10px;">
+            <div><b>(1)</b> D2 − (S + D1) + L1·cos(θ1) + L2·cos(θ2) = 0</div>
+            <div><b>(2)</b> −(H1 + H2) + L1·sin(θ1) + L2·sin(θ2) = 0</div>
+          </div>
 
-        try:
-            self.canvas_eq.fig.tight_layout()
-        except Exception:
-            pass
+          <h2 style="margin:16px 0 10px 0; color:#005F2C;">Hız</h2>
+          <div style="margin-left:10px;">
+            <div>J(θ) · [θ̇1, θ̇2]ᵀ = [Ṡ, 0]ᵀ</div>
+          </div>
 
-        lay.addWidget(self.canvas_eq, 1)
+          <h2 style="margin:16px 0 10px 0; color:#005F2C;">İvme (dkd formu)</h2>
+          <div style="margin-left:10px;">
+            <div>term_x = L1·(θ̇1²)·cos(θ1) + L2·(θ̇2²)·cos(θ2)</div>
+            <div>term_y = L1·(θ̇1²)·sin(θ1) + L2·(θ̇2²)·sin(θ2)</div>
+            <div>[θ̈1, θ̈2]ᵀ = J(θ)⁻¹ · [S̈ + term_x, term_y]ᵀ</div>
+          </div>
+
+          <h2 style="margin:16px 0 10px 0; color:#005F2C;">Bıçak</h2>
+          <div style="margin-left:10px;">
+            <div>δ_tip = arctan(H2 / D2)</div>
+            <div>θ_bıçak = θ2 + δ_tip</div>
+            <div>v = L_bıçak·θ̇_bıçak</div>
+            <div>a_t = L_bıçak·θ̈_bıçak</div>
+            <div>a_n = L_bıçak·(θ̇_bıçak²)</div>
+          </div>
+
+          <h2 style="margin:16px 0 10px 0; color:#005F2C;">Kısa Metod Özeti</h2>
+          <div style="margin-left:10px;">
+            <div>Her zaman adımında (θ1, θ2) konum denklemlerinden sayısal kök bulma ile çözülür.</div>
+            <div>Ardından hız/ivme, Jacobian ile oluşan lineer sistemlerin çözümüyle elde edilir.</div>
+          </div>
+        </div>
+        """
+        tb.setHtml(html)
+
+        v.addWidget(tb, 1)
+        lay.addWidget(box, 1)
 
     # ----------------------------
     # Run simulation and update tabs
@@ -511,7 +538,6 @@ class App(QWidget):
                 D2=to_float(self.le_D2, "D2"),
                 H1=to_float(self.le_H1, "H1"),
                 H2=to_float(self.le_H2, "H2"),
-                # delta_tip core'da otomatik
             )
 
             cfg = StrokeCfg(
@@ -604,53 +630,48 @@ class App(QWidget):
         w = np.rad2deg(out["dtheta_tip"])
         alpha = np.rad2deg(out["ddtheta_tip"])
 
-        # Bıçak Açısı
         self.ax_angle.clear()
         self.ax_angle.plot(S, ang, linewidth=2)
         self.ax_angle.set_xlabel("Stroke (mm)")
         self.ax_angle.set_ylabel("Bıçak Açısı (°)")
-        self.ax_angle.grid(True, alpha=0.25)
+        self.ax_angle.grid(True, alpha=0.20)
         self.ax_angle.set_title(f"Bıçak Açısı vs Stroke | Son: {ang[-1]:.2f}°")
         self.canvas_angle.fig.tight_layout()
         self.canvas_angle.draw()
 
-        # Açısal Hız
         self.ax_w.clear()
         self.ax_w.plot(S, w, linewidth=2)
         self.ax_w.set_xlabel("Stroke (mm)")
         self.ax_w.set_ylabel("Açısal Hız (°/s)")
-        self.ax_w.grid(True, alpha=0.25)
+        self.ax_w.grid(True, alpha=0.20)
         self.ax_w.set_title("Açısal Hız vs Stroke")
         self.canvas_w.fig.tight_layout()
         self.canvas_w.draw()
 
-        # Açısal İvme
         self.ax_alpha.clear()
         self.ax_alpha.plot(S, alpha, linewidth=2)
         self.ax_alpha.set_xlabel("Stroke (mm)")
         self.ax_alpha.set_ylabel("Açısal İvme (°/s²)")
-        self.ax_alpha.grid(True, alpha=0.25)
+        self.ax_alpha.grid(True, alpha=0.20)
         self.ax_alpha.set_title("Açısal İvme vs Stroke")
         self.canvas_alpha.fig.tight_layout()
         self.canvas_alpha.draw()
 
-        # Bıçak Hızı (v_tan)
         self.ax_v.clear()
         self.ax_v.plot(S, out["v_tan"], linewidth=2)
         self.ax_v.set_xlabel("Stroke (mm)")
         self.ax_v.set_ylabel("Bıçak Hızı (mm/s)")
-        self.ax_v.grid(True, alpha=0.25)
+        self.ax_v.grid(True, alpha=0.20)
         self.ax_v.set_title("Bıçak Hızı vs Stroke")
         self.canvas_v.fig.tight_layout()
         self.canvas_v.draw()
 
-        # Bıçak İvmesi (a_tan)
         self.ax_a.clear()
         self.ax_a.plot(S, out["a_tan"], linewidth=2, label="Bıçak İvmesi")
         self.ax_a.plot(S, out["a_norm"], linewidth=1.5, linestyle="--", label="Merkezcil İvme")
         self.ax_a.set_xlabel("Stroke (mm)")
         self.ax_a.set_ylabel("İvme (mm/s²)")
-        self.ax_a.grid(True, alpha=0.25)
+        self.ax_a.grid(True, alpha=0.20)
         self.ax_a.set_title("Bıçak İvmesi vs Stroke")
         self.ax_a.legend(loc="best")
         self.canvas_a.fig.tight_layout()
@@ -716,15 +737,15 @@ class App(QWidget):
 
     def _prepare_sim(self, out: dict, p: Params):
         # Precompute A, B, Tip for all k for fast slider updates.
-        # A is a sliding point on x-axis: x = S34 + D1, y = 0
+        # A is sliding point on x-axis: x = S34 + D1, y = 0
         S = out["S34"]
-        th2 = out["theta2"]  # expects core returns theta2
+        th2 = out["theta2"]
         theta_tip = out["theta_tip"]
         Btot = p.H1 + p.H2
 
         A = np.column_stack([S + p.D1, np.zeros_like(S)])
 
-        # B computed from theta2 (consistent)
+        # B computed from theta2
         Bx = p.D2 + p.L2 * np.cos(th2)
         By = Btot - p.L2 * np.sin(th2)
         B = np.column_stack([Bx, By])
@@ -738,23 +759,34 @@ class App(QWidget):
         self.sim_B = B
         self.sim_Tip = Tip
 
+        # Fixed limits over whole motion (no resizing jitter)
+        all_pts = np.vstack([A, B, Tip, np.zeros((len(S), 2))])  # include O=(0,0)
+        xmin, ymin = all_pts.min(axis=0)
+        xmax, ymax = all_pts.max(axis=0)
+        pad = 0.10 * max(1.0, float((xmax - xmin) + (ymax - ymin)))
+
+        self.sim_xlim = (xmin - pad, xmax + pad)
+        self.sim_ylim = (ymin - pad, ymax + pad)
+        self.ax_sim.set_xlim(*self.sim_xlim)
+        self.ax_sim.set_ylim(*self.sim_ylim)
+
         # slider range
         self.slider.setMaximum(len(S) - 1)
         self.slider.setValue(0)
         self._sim_update(0)
 
     # ----------------------------
-    # Apply Roketsan Theme
+    # Apply Roketsan Theme (less pure white)
     # ----------------------------
     def apply_theme(self):
-        # Green-white theme similar to roketsan website
         self.setStyleSheet("""
         QWidget {
-            background-color: #FFFFFF;
+            background-color: #F5F7F6;
             color: #1A1A1A;
             font-size: 11pt;
         }
         QTabWidget::pane {
+            background: #FFFFFF;
             border: 1px solid #E0E0E0;
         }
         QTabBar::tab {
@@ -779,6 +811,7 @@ class App(QWidget):
             background-color: #005F2C;
         }
         QGroupBox {
+            background-color: #FFFFFF;
             font-weight: 600;
             border: 1px solid #E0E0E0;
             margin-top: 8px;
@@ -789,6 +822,9 @@ class App(QWidget):
             left: 10px;
             padding: 0 3px 0 3px;
             color: #005F2C;
+        }
+        QLineEdit, QTableWidget, QTextBrowser {
+            background-color: #FFFFFF;
         }
         """)
 
