@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+from matplotlib.patches import Rectangle
 
 from core import Params, StrokeCfg, simulate
 
@@ -76,6 +77,33 @@ class MplCanvas(FigureCanvas):
 
 
 # ----------------------------
+# Image label (auto fit, no scroll)
+# ----------------------------
+class AutoFitImage(QLabel):
+    def __init__(self):
+        super().__init__()
+        self._pix_src: QPixmap | None = None
+        self.setAlignment(Qt.AlignCenter)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+    def set_source_pixmap(self, pix: QPixmap):
+        self._pix_src = pix
+        self._apply_scaled()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._apply_scaled()
+
+    def _apply_scaled(self):
+        if self._pix_src is None:
+            return
+        w = max(10, self.width() - 10)
+        h = max(10, self.height() - 10)
+        pix2 = self._pix_src.scaled(w, h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.setPixmap(pix2)
+
+
+# ----------------------------
 # Main UI
 # ----------------------------
 class App(QWidget):
@@ -87,10 +115,10 @@ class App(QWidget):
         # last outputs
         self.out: dict | None = None
 
-        # precomputed simulation coordinates
-        self.sim_A = None
-        self.sim_B = None
-        self.sim_Tip = None
+        # sim precompute
+        self.sim_O = None      # (2,)
+        self.sim_A = None      # (Nt,2)
+        self.sim_B = None      # (Nt,2)
         self.sim_xlim = None
         self.sim_ylim = None
 
@@ -166,13 +194,13 @@ class App(QWidget):
         return lay
 
     # ----------------------------
-    # Tab 1: Input + Image
+    # Tab 1: Input + Image (NO SCROLL on image)
     # ----------------------------
     def _build_tab_input(self):
         layout = QHBoxLayout(self.tab_input)
         layout.setSpacing(10)
 
-        # Left: compact inputs
+        # Left: compact inputs (scrollable to avoid overlap)
         left = QVBoxLayout()
         left.setSpacing(8)
 
@@ -183,13 +211,13 @@ class App(QWidget):
 
         self.le_L1 = QLineEdit("28")
         self.le_L2 = QLineEdit("30.017")
-        self.le_Ltip = QLineEdit("565")
+        self.le_Ltip = QLineEdit("565")  # still used for outputs (plots), not for sim view
         form_geo.addRow("Kol-1 Uzunluğu (A-B) [mm]", self.le_L1)
         form_geo.addRow("Kol-2 Uzunluğu (O-B) [mm]", self.le_L2)
         form_geo.addRow("Bıçak Uzunluğu [mm]", self.le_Ltip)
         note = QLabel("Not: Bıçak uzunluğu O noktasından itibaren ölçülür.")
         note.setWordWrap(True)
-        note.setStyleSheet("color:#444; font-weight:400;")
+        note.setStyleSheet("color:#2D2D2D; font-weight:400;")
         form_geo.addRow(note)
 
         box_off = QGroupBox("Ofsetler")
@@ -229,10 +257,6 @@ class App(QWidget):
         self.lbl_status = QLabel("Hazır.")
         self.lbl_status.setWordWrap(True)
 
-        left_container = QWidget()
-        left_container.setLayout(left)
-        left_container.setMaximumWidth(440)
-
         left.addWidget(box_geo)
         left.addWidget(box_off)
         left.addWidget(box_motion)
@@ -240,26 +264,23 @@ class App(QWidget):
         left.addWidget(self.lbl_status)
         left.addStretch(1)
 
-        # Make left panel scrollable so it never overlaps
+        left_container = QWidget()
+        left_container.setLayout(left)
+        left_container.setMaximumWidth(440)
+
         left_scroll = QScrollArea()
         left_scroll.setWidgetResizable(True)
         left_scroll.setWidget(left_container)
         left_scroll.setMaximumWidth(470)
 
-        # Right: mechanism image
+        # Right: mechanism image (NO scroll; auto-fit)
         right = QVBoxLayout()
         title = QLabel("Mekanizma Görseli")
         title.setStyleSheet("font-weight:600; color:#005F2C;")
         right.addWidget(title, 0, Qt.AlignLeft)
 
-        self.img_label = QLabel()
-        self.img_label.setAlignment(Qt.AlignCenter)
-        self.img_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(self.img_label)
-        right.addWidget(scroll, 1)
+        self.img_label = AutoFitImage()
+        right.addWidget(self.img_label, 1)
 
         layout.addWidget(left_scroll, 0)
         layout.addLayout(right, 1)
@@ -270,8 +291,7 @@ class App(QWidget):
         img_path = resource_path("assets/mechanism.png")
         if img_path.exists():
             pix = QPixmap(str(img_path))
-            # scale reasonably for the right pane
-            self.img_label.setPixmap(pix.scaledToWidth(920, Qt.SmoothTransformation))
+            self.img_label.set_source_pixmap(pix)
         else:
             self.img_label.setText("assets/mechanism.png bulunamadı.")
 
@@ -366,7 +386,7 @@ class App(QWidget):
 
             for c in range(1, len(headers) + 1):
                 col = get_column_letter(c)
-                ws.column_dimensions[col].width = max(12, min(30, len(headers[c - 1]) + 2))
+                ws.column_dimensions[col].width = max(14, min(34, len(headers[c - 1]) + 2))
 
             wb.save(path)
             QMessageBox.information(self, "Tamam", "Excel dosyası kaydedildi.")
@@ -374,7 +394,7 @@ class App(QWidget):
             QMessageBox.critical(self, "Hata", f"Excel export başarısız: {e}")
 
     # ----------------------------
-    # Tab: Simulation (slider controlled) - FIXED VIEW + RAIL
+    # Tab: Simulation (NEW: O/A/B ref, slider rectangle, no blade)
     # ----------------------------
     def _build_tab_sim(self):
         lay = QVBoxLayout(self.tab_sim)
@@ -385,11 +405,10 @@ class App(QWidget):
         self.slider.setMaximum(0)
         self.slider.valueChanged.connect(self._sim_update)
         self.sim_info = QLabel("Hesaplama sonrası aktif olur.")
-        self.sim_info.setStyleSheet("color:#333;")
+        self.sim_info.setStyleSheet("color:#1A1A1A;")
         top.addWidget(QLabel("Konum:"))
         top.addWidget(self.slider, 1)
         top.addWidget(self.sim_info, 0)
-
         lay.addLayout(top)
 
         self.canvas_sim = MplCanvas()
@@ -397,126 +416,141 @@ class App(QWidget):
         lay.addWidget(self.canvas_sim, 1)
 
         self.ax_sim.set_aspect("equal", adjustable="box")
-        self.ax_sim.grid(True, alpha=0.12)
-        self.ax_sim.set_title("Mekanizma Simülasyonu (Slider Kontrollü)")
+        self.ax_sim.grid(True, alpha=0.10)
+        self.ax_sim.set_title("Mekanizma Simülasyonu (Slider + L1 + L2)")
         self.canvas_sim.fig.tight_layout()
 
-        # Artists (consistent colors)
+        # Artists
         self.line_rail, = self.ax_sim.plot([], [], linewidth=2, linestyle="--", alpha=0.35)
 
-        self.line_L2, = self.ax_sim.plot([], [], linewidth=4)   # O-B
-        self.line_L1, = self.ax_sim.plot([], [], linewidth=4)   # A-B
-        self.line_blade, = self.ax_sim.plot([], [], linewidth=6)  # B-Tip
+        self.line_L1, = self.ax_sim.plot([], [], linewidth=4)  # A-B
+        self.line_L2, = self.ax_sim.plot([], [], linewidth=4)  # O-B
 
-        self.pt_O = self.ax_sim.scatter([], [], s=80)
-        self.pt_A = self.ax_sim.scatter([], [], s=80)
-        self.pt_B = self.ax_sim.scatter([], [], s=90)
-        self.pt_T = self.ax_sim.scatter([], [], s=90)
+        self.pt_O = self.ax_sim.scatter([], [], s=90, zorder=5)
+        self.pt_A = self.ax_sim.scatter([], [], s=90, zorder=6)
+        self.pt_B = self.ax_sim.scatter([], [], s=110, zorder=7)
 
-        # legend-like text (small)
-        self.ax_sim.text(0.01, 0.01, "O: Mavi | A: Turuncu | B: Yeşil | Tip: Kırmızı",
-                         transform=self.ax_sim.transAxes, fontsize=9, alpha=0.6)
+        # Slider rectangle patch (centered at A)
+        self.slider_rect = Rectangle((0, 0), 10.0, 6.0, linewidth=2, fill=True, zorder=4)
+        self.ax_sim.add_patch(self.slider_rect)
+
+        # Colors (consistent)
+        self.line_L1.set_color("#4D4D4D")
+        self.line_L2.set_color("#4D4D4D")
+        self.line_rail.set_color("#777777")
+
+        self.pt_O.set_color("#1f77b4")  # blue
+        self.pt_A.set_color("#ff7f0e")  # orange
+        self.pt_B.set_color("#2ca02c")  # green
+
+        self.slider_rect.set_edgecolor("#005F2C")
+        self.slider_rect.set_facecolor("#CFE7DA")  # soft greenish
 
     def _sim_update(self, k: int):
-        if self.out is None or self.sim_A is None:
+        if self.out is None or self.sim_A is None or self.sim_B is None or self.sim_O is None:
             return
         k = int(k)
 
+        O = self.sim_O
         A = self.sim_A[k]
         B = self.sim_B[k]
-        T = self.sim_Tip[k]
-        O = np.array([0.0, 0.0])
 
-        # stable limits (do NOT rescale each frame)
+        # stable limits (no rescale jitter)
         if self.sim_xlim is not None and self.sim_ylim is not None:
             self.ax_sim.set_xlim(*self.sim_xlim)
             self.ax_sim.set_ylim(*self.sim_ylim)
 
-        # rail at y=0 across whole view
+        # rail y=0 across whole view
         if self.sim_xlim is not None:
             x0, x1 = self.sim_xlim
             self.line_rail.set_data([x0, x1], [0.0, 0.0])
 
-        # update lines
-        self.line_L2.set_data([O[0], B[0]], [O[1], B[1]])
+        # Links
         self.line_L1.set_data([A[0], B[0]], [A[1], B[1]])
-        self.line_blade.set_data([B[0], T[0]], [B[1], T[1]])
+        self.line_L2.set_data([O[0], B[0]], [O[1], B[1]])
 
-        # points
+        # Points
         self.pt_O.set_offsets([O])
         self.pt_A.set_offsets([A])
         self.pt_B.set_offsets([B])
-        self.pt_T.set_offsets([T])
 
-        # point styles (colors)
-        self.pt_O.set_color("#1f77b4")  # blue
-        self.pt_A.set_color("#ff7f0e")  # orange
-        self.pt_B.set_color("#2ca02c")  # green
-        self.pt_T.set_color("#d62728")  # red
+        # Slider rectangle centered at A
+        w = float(self.slider_rect.get_width())
+        h = float(self.slider_rect.get_height())
+        self.slider_rect.set_xy((A[0] - w / 2.0, A[1] - h / 2.0))
 
-        # line colors: links gray, blade roketsan green
-        self.line_L1.set_color("#555555")
-        self.line_L2.set_color("#555555")
-        self.line_blade.set_color("#00843D")
-        self.line_rail.set_color("#888888")
-
-        # info
+        # Info
         t = float(self.out["t"][k])
         s = float(self.out["S34"][k])
-        ang = float(np.rad2deg(self.out["theta_tip"][k]))
-        self.sim_info.setText(f"t={t:.4f}s | Stroke={s:.2f}mm | Bıçak Açısı={ang:.2f}°")
+        th1 = float(np.rad2deg(self.out["theta1"][k]))
+        th2 = float(np.rad2deg(self.out["theta2"][k]))
+        self.sim_info.setText(f"t={t:.4f}s | Stroke={s:.2f}mm | θ1={th1:.2f}° | θ2={th2:.2f}°")
 
         self.canvas_sim.draw()
 
+    def _prepare_sim(self, out: dict, p: Params):
+        # Reference (user confirmed):
+        # O = (-D2, Btot) fixed
+        # A = (-(S + D1), 0)
+        # B = (Ox + L2*cos(theta2), Oy - L2*sin(theta2))
+        S = out["S34"]
+        th2 = out["theta2"]
+        Btot = p.H1 + p.H2
+
+        O = np.array([-p.D2, Btot], dtype=float)
+        A = np.column_stack([-(S + p.D1), np.zeros_like(S)])
+
+        Bx = O[0] + p.L2 * np.cos(th2)
+        By = O[1] - p.L2 * np.sin(th2)
+        B = np.column_stack([Bx, By])
+
+        self.sim_O = O
+        self.sim_A = A
+        self.sim_B = B
+
+        # Fixed limits for stable view (no zoom changes)
+        all_pts = np.vstack([A, B, np.tile(O, (len(S), 1))])
+        xmin, ymin = all_pts.min(axis=0)
+        xmax, ymax = all_pts.max(axis=0)
+
+        span = float(max(xmax - xmin, ymax - ymin))
+        pad = 0.25 * max(1.0, span)  # generous padding for clarity
+
+        self.sim_xlim = (xmin - pad, xmax + pad)
+        self.sim_ylim = (min(-pad * 0.15, ymin - pad * 0.15), ymax + pad)
+
+        self.ax_sim.set_xlim(*self.sim_xlim)
+        self.ax_sim.set_ylim(*self.sim_ylim)
+
+        # slider range
+        self.slider.setMaximum(len(S) - 1)
+        self.slider.setValue(0)
+        self._sim_update(0)
+
     # ----------------------------
-    # Tab: Equations (HTML, clean layout)
+    # Tab: Equations (placeholder until you approve final layout)
     # ----------------------------
     def _build_tab_equations(self):
         lay = QVBoxLayout(self.tab_eq)
 
-        box = QGroupBox("Denklemler (Sabit İvme Varsayımı)")
+        box = QGroupBox("Denklemler")
         v = QVBoxLayout(box)
 
         tb = QTextBrowser()
         tb.setOpenExternalLinks(False)
 
-        html = """
-        <div style="font-family:Segoe UI, Arial; font-size:12pt; line-height:1.55; padding:10px;">
-          <h2 style="margin:0 0 10px 0; color:#005F2C;">Konum Denklemleri</h2>
-          <div style="margin-left:10px;">
-            <div><b>(1)</b> D2 − (S + D1) + L1·cos(θ1) + L2·cos(θ2) = 0</div>
-            <div><b>(2)</b> −(H1 + H2) + L1·sin(θ1) + L2·sin(θ2) = 0</div>
+        # TODO: After your approval, replace this HTML with the final formatted version.
+        HTML_PLACEHOLDER = """
+        <div style="font-family:Segoe UI, Arial; font-size:12pt; line-height:1.55; padding:14px;">
+          <div style="color:#005F2C; font-weight:700; font-size:14pt; margin-bottom:8px;">
+            Denklemler Sekmesi (Onay Sonrası Son Düzen)
           </div>
-
-          <h2 style="margin:16px 0 10px 0; color:#005F2C;">Hız</h2>
-          <div style="margin-left:10px;">
-            <div>J(θ) · [θ̇1, θ̇2]ᵀ = [Ṡ, 0]ᵀ</div>
-          </div>
-
-          <h2 style="margin:16px 0 10px 0; color:#005F2C;">İvme (dkd formu)</h2>
-          <div style="margin-left:10px;">
-            <div>term_x = L1·(θ̇1²)·cos(θ1) + L2·(θ̇2²)·cos(θ2)</div>
-            <div>term_y = L1·(θ̇1²)·sin(θ1) + L2·(θ̇2²)·sin(θ2)</div>
-            <div>[θ̈1, θ̈2]ᵀ = J(θ)⁻¹ · [S̈ + term_x, term_y]ᵀ</div>
-          </div>
-
-          <h2 style="margin:16px 0 10px 0; color:#005F2C;">Bıçak</h2>
-          <div style="margin-left:10px;">
-            <div>δ_tip = arctan(H2 / D2)</div>
-            <div>θ_bıçak = θ2 + δ_tip</div>
-            <div>v = L_bıçak·θ̇_bıçak</div>
-            <div>a_t = L_bıçak·θ̈_bıçak</div>
-            <div>a_n = L_bıçak·(θ̇_bıçak²)</div>
-          </div>
-
-          <h2 style="margin:16px 0 10px 0; color:#005F2C;">Kısa Metod Özeti</h2>
-          <div style="margin-left:10px;">
-            <div>Her zaman adımında (θ1, θ2) konum denklemlerinden sayısal kök bulma ile çözülür.</div>
-            <div>Ardından hız/ivme, Jacobian ile oluşan lineer sistemlerin çözümüyle elde edilir.</div>
+          <div style="opacity:0.85;">
+            Bu alan, senin onayladığın final yerleşim metniyle güncellenecek.
           </div>
         </div>
         """
-        tb.setHtml(html)
+        tb.setHtml(HTML_PLACEHOLDER)
 
         v.addWidget(tb, 1)
         lay.addWidget(box, 1)
@@ -546,7 +580,6 @@ class App(QWidget):
                 stroke_mm=to_float(self.le_stroke, "Stroke"),
             )
 
-            # validation
             if cfg.t_end <= 0:
                 raise ValueError("Hareket Süresi > 0 olmalı.")
             if cfg.Nt < 50:
@@ -567,7 +600,6 @@ class App(QWidget):
                 f"Son: Stroke={s_end:.2f} mm | Bıçak Açısı={ang_end:.2f}° | başarı={ok_ratio:.1f}%"
             )
 
-            # enable result tabs
             for i in range(1, self.tabs.count()):
                 self.tabs.setTabEnabled(i, True)
 
@@ -576,7 +608,6 @@ class App(QWidget):
             self._update_table(out)
             self._prepare_sim(out, p)
 
-            # go to summary
             self.tabs.setCurrentIndex(2)
 
             if ok_ratio < 99.0:
@@ -735,97 +766,79 @@ class App(QWidget):
 
         self.table.resizeColumnsToContents()
 
-    def _prepare_sim(self, out: dict, p: Params):
-        # Precompute A, B, Tip for all k for fast slider updates.
-        # A is sliding point on x-axis: x = S34 + D1, y = 0
-        S = out["S34"]
-        th2 = out["theta2"]
-        theta_tip = out["theta_tip"]
-        Btot = p.H1 + p.H2
-
-        A = np.column_stack([S + p.D1, np.zeros_like(S)])
-
-        # B computed from theta2
-        Bx = p.D2 + p.L2 * np.cos(th2)
-        By = Btot - p.L2 * np.sin(th2)
-        B = np.column_stack([Bx, By])
-
-        # Tip
-        Tx = Bx + p.L_tip * np.cos(theta_tip)
-        Ty = By + p.L_tip * np.sin(theta_tip)
-        Tip = np.column_stack([Tx, Ty])
-
-        self.sim_A = A
-        self.sim_B = B
-        self.sim_Tip = Tip
-
-        # Fixed limits over whole motion (no resizing jitter)
-        all_pts = np.vstack([A, B, Tip, np.zeros((len(S), 2))])  # include O=(0,0)
-        xmin, ymin = all_pts.min(axis=0)
-        xmax, ymax = all_pts.max(axis=0)
-        pad = 0.10 * max(1.0, float((xmax - xmin) + (ymax - ymin)))
-
-        self.sim_xlim = (xmin - pad, xmax + pad)
-        self.sim_ylim = (ymin - pad, ymax + pad)
-        self.ax_sim.set_xlim(*self.sim_xlim)
-        self.ax_sim.set_ylim(*self.sim_ylim)
-
-        # slider range
-        self.slider.setMaximum(len(S) - 1)
-        self.slider.setValue(0)
-        self._sim_update(0)
-
     # ----------------------------
-    # Apply Roketsan Theme (less pure white)
+    # Apply Roketsan Theme (NO pure white)
     # ----------------------------
     def apply_theme(self):
-        self.setStyleSheet("""
-        QWidget {
-            background-color: #F5F7F6;
+        # Soft palette (no #FFFFFF)
+        bg = "#EEF2F0"
+        card = "#EEF2F0"
+        field = "#F4F6F5"
+        border = "#D7DDDA"
+
+        self.setStyleSheet(f"""
+        QWidget {{
+            background-color: {bg};
             color: #1A1A1A;
             font-size: 11pt;
-        }
-        QTabWidget::pane {
-            background: #FFFFFF;
-            border: 1px solid #E0E0E0;
-        }
-        QTabBar::tab {
+        }}
+        QTabWidget::pane {{
+            background: {bg};
+            border: 1px solid {border};
+            border-radius: 6px;
+        }}
+        QTabBar::tab {{
             background: #005F2C;
             color: white;
             padding: 8px 12px;
             margin-right: 2px;
-            border-top-left-radius: 4px;
-            border-top-right-radius: 4px;
-        }
-        QTabBar::tab:selected {
+            border-top-left-radius: 6px;
+            border-top-right-radius: 6px;
+        }}
+        QTabBar::tab:selected {{
             background: #00843D;
-        }
-        QPushButton {
+        }}
+        QPushButton {{
             background-color: #00843D;
             color: white;
             padding: 6px 10px;
-            border-radius: 4px;
-            font-weight: 600;
-        }
-        QPushButton:hover {
-            background-color: #005F2C;
-        }
-        QGroupBox {
-            background-color: #FFFFFF;
-            font-weight: 600;
-            border: 1px solid #E0E0E0;
-            margin-top: 8px;
             border-radius: 6px;
-        }
-        QGroupBox::title {
+            font-weight: 600;
+        }}
+        QPushButton:hover {{
+            background-color: #005F2C;
+        }}
+        QGroupBox {{
+            background-color: {card};
+            font-weight: 600;
+            border: 1px solid {border};
+            margin-top: 8px;
+            border-radius: 8px;
+        }}
+        QGroupBox::title {{
             subcontrol-origin: margin;
             left: 10px;
             padding: 0 3px 0 3px;
             color: #005F2C;
-        }
-        QLineEdit, QTableWidget, QTextBrowser {
-            background-color: #FFFFFF;
-        }
+        }}
+        QLineEdit, QTableWidget, QTextBrowser {{
+            background-color: {field};
+            border: 1px solid {border};
+            border-radius: 6px;
+            padding: 4px 6px;
+        }}
+        QHeaderView::section {{
+            background-color: {card};
+            border: 1px solid {border};
+            padding: 6px;
+        }}
+        QScrollArea {{
+            background-color: {bg};
+            border: 0px;
+        }}
+        QScrollArea QWidget {{
+            background-color: {bg};
+        }}
         """)
 
 
