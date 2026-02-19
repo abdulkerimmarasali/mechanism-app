@@ -272,13 +272,6 @@ class App(QWidget):
         self.btn_run.setStyleSheet(BTN_QSS)
         self.btn_reset.setStyleSheet(BTN_QSS)
         
-        # Native "default button" efekti/çerçevesi karışmasın
-        self.btn_run.setDefault(False)
-        self.btn_reset.setDefault(False)
-        self.btn_run.setAutoDefault(False)
-        self.btn_reset.setAutoDefault(False)
-
-
         # ensure these are always green-styled via theme
         self.btn_run.setProperty("primaryAction", True)
         self.btn_reset.setProperty("primaryAction", True)
