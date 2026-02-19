@@ -858,7 +858,7 @@ class App(QWidget):
         card = "#EEF2F0"
         field = "#F4F6F5"
     
-        # Rev-3: darker separators/strips (near-black)
+        # Darker separators/strips (near-black)
         sep = "#2F2F2F"            # pane/group/separators
         field_border = "#5A5A5A"   # inputs/tables
     
@@ -888,7 +888,7 @@ class App(QWidget):
             background: #00843D;
         }}
     
-        /* Rev-3: Buttons always green (even disabled) */
+        /* Generic buttons (green) */
         QPushButton {{
             background-color: #00843D;
             color: white;
@@ -909,10 +909,32 @@ class App(QWidget):
             border: 1px solid #004D24;
         }}
         QPushButton:disabled {{
-            background-color: #00843D;    /* keep green */
-            color: white;                 /* keep text white */
+            background-color: #00843D;
+            color: white;
             border: 1px solid #004D24;
-            opacity: 1.0;                 /* prevent washed-out look */
+            opacity: 1.0;
+        }}
+    
+        /* FORCE: Hesapla + Reset always green (ID selector wins) */
+        #BtnRun, #BtnReset {{
+            background-color: #00843D;
+            color: white;
+            border: 1px solid #004D24;
+            border-radius: 6px;
+            font-weight: 700;
+            padding: 6px 10px;
+        }}
+        #BtnRun:hover, #BtnReset:hover {{
+            background-color: #005F2C;
+        }}
+        #BtnRun:pressed, #BtnReset:pressed {{
+            background-color: #004D24;
+        }}
+        #BtnRun:disabled, #BtnReset:disabled {{
+            background-color: #00843D;
+            color: white;
+            border: 1px solid #004D24;
+            opacity: 1.0;
         }}
     
         /* Darker group borders (separator strips) */
@@ -951,7 +973,15 @@ class App(QWidget):
         QScrollArea QWidget {{
             background-color: {bg};
         }}
+    
+        /* Equations panel single border */
+        #EqPanel {{
+            background-color: {field};
+            border: 1px solid {sep};
+            border-radius: 10px;
+        }}
         """)
+
 
 def main():
     app = QApplication(sys.argv)
