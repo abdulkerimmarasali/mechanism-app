@@ -6,6 +6,8 @@ from pathlib import Path
 
 import numpy as np
 
+import io
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
@@ -552,83 +554,92 @@ class App(QWidget):
         self.slider.setValue(0)
         self._sim_update(0)
 
+    def _latex_to_pixmap(self, latex: str, fontsize: int = 16, pad_px: int = 8) -> QPixmap:
+    """
+    Render a single LaTeX string to QPixmap using matplotlib mathtext.
+    latex: must be math-only (without $$), e.g. r"D_2-(S+D_1)+L_1\cos\theta_1=0"
+    """
+    # render tightly cropped
+    fig = Figure(figsize=(0.01, 0.01), dpi=200)
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.axis("off")
+
+    # MathText: wrap with $...$
+    ax.text(0.0, 0.5, f"${latex}$", fontsize=fontsize, va="center", ha="left")
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=200, bbox_inches="tight", pad_inches=0.08, transparent=True)
+    buf.seek(0)
+
+    pix = QPixmap()
+    pix.loadFromData(buf.read(), "PNG")
+    return pix
+
     # ----------------------------
     # Tab: Equations (FINAL formatted; readable + fast)
     # ----------------------------
     def _build_tab_equations(self):
-        lay = QVBoxLayout(self.tab_eq)
+    # Single clean page: no extra groupbox nesting, no duplicated "Denklemler"
+    outer = QVBoxLayout(self.tab_eq)
+    outer.setContentsMargins(10, 10, 10, 10)
+    outer.setSpacing(10)
 
-        box = QGroupBox("Denklemler")
-        v = QVBoxLayout(box)
+    # Container with a single border (no double boxes)
+    panel = QWidget()
+    panel.setObjectName("EqPanel")
+    panel_lay = QVBoxLayout(panel)
+    panel_lay.setContentsMargins(16, 14, 16, 14)
+    panel_lay.setSpacing(14)
 
-        tb = QTextBrowser()
-        tb.setOpenExternalLinks(False)
+    title = QLabel("Denklemler Sekmesi")
+    title.setStyleSheet("font-weight:800; font-size:16pt; color:#005F2C;")
+    panel_lay.addWidget(title)
 
-        # Note: keep content same; improve layout/readability.
-        html = """
-        <div style="font-family:Segoe UI, Arial; font-size:12pt; line-height:1.55; padding:14px; color:#1A1A1A;">
-          <div style="color:#005F2C; font-weight:800; font-size:15pt; margin-bottom:10px;">
-            Denklemler Sekmesi
-          </div>
+    def add_section(header: str, latex_lines: list[str]):
+        h = QLabel(header)
+        h.setStyleSheet("font-weight:800; font-size:12.5pt; color:#005F2C; margin-top:6px;")
+        panel_lay.addWidget(h)
 
-          <div style="margin:10px 0 6px; font-weight:800; color:#005F2C;">Konum Denklemleri</div>
-          <div style="padding:10px 12px; border:1px solid #3A3A3A; border-radius:8px; background:#F4F6F5;">
-            <div style="font-family:Consolas, 'Courier New', monospace; font-size:12pt;">
-              D2 − (S + D1) + L1·cos(θ1) + L2·cos(θ2) = 0
-            </div>
-            <div style="height:8px;"></div>
-            <div style="font-family:Consolas, 'Courier New', monospace; font-size:12pt;">
-              −(H1 + H2) + L1·sin(θ1) + L2·sin(θ2) = 0
-            </div>
-          </div>
+        # each equation line as LaTeX pixmap (fast + clean)
+        for s in latex_lines:
+            lbl = QLabel()
+            lbl.setPixmap(self._latex_to_pixmap(s, fontsize=16))
+            lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            lbl.setStyleSheet("background: transparent;")
+            panel_lay.addWidget(lbl)
 
-          <div style="margin:14px 0 6px; font-weight:800; color:#005F2C;">Hız Denklemleri</div>
-          <div style="padding:10px 12px; border:1px solid #3A3A3A; border-radius:8px; background:#F4F6F5;">
-            <div style="font-family:Consolas, 'Courier New', monospace; font-size:12pt;">
-              −L1·sin(θ1)·θ̇1 − L2·sin(θ2)·θ̇2 = Ṡ
-            </div>
-            <div style="height:8px;"></div>
-            <div style="font-family:Consolas, 'Courier New', monospace; font-size:12pt;">
-              L1·cos(θ1)·θ̇1 + L2·cos(θ2)·θ̇2 = 0
-            </div>
-          </div>
+    add_section("Konum Denklemleri", [
+        r"D_2-(S+D_1)+L_1\cos(\theta_1)+L_2\cos(\theta_2)=0",
+        r"-(H_1+H_2)+L_1\sin(\theta_1)+L_2\sin(\theta_2)=0",
+    ])
 
-          <div style="margin:14px 0 6px; font-weight:800; color:#005F2C;">İvme Denklemleri</div>
-          <div style="padding:10px 12px; border:1px solid #3A3A3A; border-radius:8px; background:#F4F6F5;">
-            <div style="font-family:Consolas, 'Courier New', monospace; font-size:12pt;">
-              −L1·sin(θ1)·θ̈1 − L2·sin(θ2)·θ̈2 = S̈ + L1·cos(θ1)·(θ̇1)² + L2·cos(θ2)·(θ̇2)²
-            </div>
-            <div style="height:8px;"></div>
-            <div style="font-family:Consolas, 'Courier New', monospace; font-size:12pt;">
-              L1·cos(θ1)·θ̈1 + L2·cos(θ2)·θ̈2 = L1·sin(θ1)·(θ̇1)² + L2·sin(θ2)·(θ̇2)²
-            </div>
-          </div>
+    add_section("Hız Denklemleri", [
+        r"-L_1\sin(\theta_1)\,\dot{\theta}_1 - L_2\sin(\theta_2)\,\dot{\theta}_2 = \dot{S}",
+        r"L_1\cos(\theta_1)\,\dot{\theta}_1 + L_2\cos(\theta_2)\,\dot{\theta}_2 = 0",
+    ])
 
-          <div style="margin:14px 0 6px; font-weight:800; color:#005F2C;">Bıçak İlişkileri</div>
-          <div style="padding:10px 12px; border:1px solid #3A3A3A; border-radius:8px; background:#F4F6F5;">
-            <div style="font-family:Consolas, 'Courier New', monospace; font-size:12pt;">
-              δ<sub>tip</sub> = arctan(H2 / D2)
-            </div>
-            <div style="height:8px;"></div>
-            <div style="font-family:Consolas, 'Courier New', monospace; font-size:12pt;">
-              θ<sub>bıçak</sub> = θ2 + δ<sub>tip</sub>
-            </div>
-            <div style="height:8px;"></div>
-            <div style="font-family:Consolas, 'Courier New', monospace; font-size:12pt;">
-              θ̇<sub>bıçak</sub> = θ̇2
-            </div>
-            <div style="height:8px;"></div>
-            <div style="font-family:Consolas, 'Courier New', monospace; font-size:12pt;">
-              θ̈<sub>bıçak</sub> = θ̈2
-            </div>
-          </div>
+    add_section("İvme Denklemleri", [
+        r"-L_1\sin(\theta_1)\,\ddot{\theta}_1 - L_2\sin(\theta_2)\,\ddot{\theta}_2"
+        r"=\ddot{S}+L_1\cos(\theta_1)\,\dot{\theta}_1^{2}+L_2\cos(\theta_2)\,\dot{\theta}_2^{2}",
+        r"L_1\cos(\theta_1)\,\ddot{\theta}_1 + L_2\cos(\theta_2)\,\ddot{\theta}_2"
+        r"=L_1\sin(\theta_1)\,\dot{\theta}_1^{2}+L_2\sin(\theta_2)\,\dot{\theta}_2^{2}",
+    ])
 
-        </div>
-        """
-        tb.setHtml(html)
+    add_section("Bıçak İlişkileri", [
+        r"\delta_{tip}=\arctan\!\left(\frac{H_2}{D_2}\right)",
+        r"\theta_{b\i cak}=\theta_2+\delta_{tip}",
+        r"\dot{\theta}_{b\i cak}=\dot{\theta}_2",
+        r"\ddot{\theta}_{b\i cak}=\ddot{\theta}_2",
+    ])
 
-        v.addWidget(tb, 1)
-        lay.addWidget(box, 1)
+    panel_lay.addStretch(1)
+
+    # Scroll only if needed (keeps clean view)
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setWidget(panel)
+
+    outer.addWidget(scroll, 1)
 
     # ----------------------------
     # Run simulation and update tabs
@@ -748,7 +759,7 @@ class App(QWidget):
         self.ax_w.clear()
         self.ax_w.plot(S, w, linewidth=2)
         self.ax_w.set_xlabel("Stroke (mm)")
-        self.ax_w.set_ylabel("Açısal Hız (°/s)")
+        self.ax_w.set_ylabel("Açısal Hız (rad/s)")
         self.ax_w.grid(True, alpha=0.20)
         self.ax_w.set_title("Açısal Hız vs Stroke")
         self.canvas_w.fig.tight_layout()
@@ -757,7 +768,7 @@ class App(QWidget):
         self.ax_alpha.clear()
         self.ax_alpha.plot(S, alpha, linewidth=2)
         self.ax_alpha.set_xlabel("Stroke (mm)")
-        self.ax_alpha.set_ylabel("Açısal İvme (°/s²)")
+        self.ax_alpha.set_ylabel("Açısal İvme (rad/s²)")
         self.ax_alpha.grid(True, alpha=0.20)
         self.ax_alpha.set_title("Açısal İvme vs Stroke")
         self.canvas_alpha.fig.tight_layout()
@@ -845,30 +856,30 @@ class App(QWidget):
     # Apply Roketsan Theme (NO pure white)
     # + Rev-3: buttons always green, separators darker
     # ----------------------------
-    def apply_theme(self):
+   def apply_theme(self):
         # Soft palette (no #FFFFFF)
         bg = "#EEF2F0"
         card = "#EEF2F0"
         field = "#F4F6F5"
-
+    
         # Rev-3: darker separators/strips (near-black)
-        sep = "#2F2F2F"      # pane/group/separators
-        field_border = "#5A5A5A"  # inputs/tables
-
+        sep = "#2F2F2F"            # pane/group/separators
+        field_border = "#5A5A5A"   # inputs/tables
+    
         self.setStyleSheet(f"""
         QWidget {{
             background-color: {bg};
             color: #1A1A1A;
             font-size: 11pt;
         }}
-
+    
         /* Darker pane border (separator strips) */
         QTabWidget::pane {{
             background: {bg};
             border: 1px solid {sep};
             border-radius: 6px;
         }}
-
+    
         QTabBar::tab {{
             background: #005F2C;
             color: white;
@@ -880,7 +891,7 @@ class App(QWidget):
         QTabBar::tab:selected {{
             background: #00843D;
         }}
-
+    
         /* Rev-3: Buttons always green (even disabled) */
         QPushButton {{
             background-color: #00843D;
@@ -896,12 +907,18 @@ class App(QWidget):
         QPushButton:pressed {{
             background-color: #004D24;
         }}
-        QPushButton:disabled {{
-            background-color: #00843D;   /* keep green */
-            color: rgba(255,255,255,230);
+        QPushButton:checked {{
+            background-color: #00843D;
+            color: white;
             border: 1px solid #004D24;
         }}
-
+        QPushButton:disabled {{
+            background-color: #00843D;    /* keep green */
+            color: white;                 /* keep text white */
+            border: 1px solid #004D24;
+            opacity: 1.0;                 /* prevent washed-out look */
+        }}
+    
         /* Darker group borders (separator strips) */
         QGroupBox {{
             background-color: {card};
@@ -916,7 +933,7 @@ class App(QWidget):
             padding: 0 3px 0 3px;
             color: #005F2C;
         }}
-
+    
         /* Inputs */
         QLineEdit, QTableWidget, QTextBrowser {{
             background-color: {field};
@@ -924,13 +941,13 @@ class App(QWidget):
             border-radius: 6px;
             padding: 4px 6px;
         }}
-
+    
         QHeaderView::section {{
             background-color: {card};
             border: 1px solid {sep};
             padding: 6px;
         }}
-
+    
         QScrollArea {{
             background-color: {bg};
             border: 0px;
@@ -939,7 +956,6 @@ class App(QWidget):
             background-color: {bg};
         }}
         """)
-
 
 def main():
     app = QApplication(sys.argv)
