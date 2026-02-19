@@ -852,7 +852,7 @@ class App(QWidget):
     # Apply Roketsan Theme (NO pure white)
     # + Rev-3: buttons always green, separators darker
     # ----------------------------
-   def apply_theme(self):
+    def apply_theme(self):
         # Soft palette (no #FFFFFF)
         bg = "#EEF2F0"
         card = "#EEF2F0"
