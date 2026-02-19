@@ -167,7 +167,7 @@ class App(QWidget):
         self._build_tab_equations()
 
     # ----------------------------
-    # Theme + banner
+    # Banner
     # ----------------------------
     def _build_banner(self):
         lay = QHBoxLayout()
@@ -211,7 +211,7 @@ class App(QWidget):
 
         self.le_L1 = QLineEdit("28")
         self.le_L2 = QLineEdit("30.017")
-        self.le_Ltip = QLineEdit("565")  # still used for outputs (plots), not for sim view
+        self.le_Ltip = QLineEdit("565")  # used for outputs (plots), not for sim view
         form_geo.addRow("Kol-1 Uzunluğu (A-B) [mm]", self.le_L1)
         form_geo.addRow("Kol-2 Uzunluğu (O-B) [mm]", self.le_L2)
         form_geo.addRow("Bıçak Uzunluğu [mm]", self.le_Ltip)
@@ -247,10 +247,16 @@ class App(QWidget):
         form_m.addRow("Stroke [mm]", self.le_stroke)
 
         btn_row = QHBoxLayout()
+
         self.btn_run = QPushButton("Hesapla")
         self.btn_reset = QPushButton("Reset")
         self.btn_run.clicked.connect(self.on_run)
         self.btn_reset.clicked.connect(self.on_reset)
+
+        # ensure these are always green-styled via theme
+        self.btn_run.setProperty("primaryAction", True)
+        self.btn_reset.setProperty("primaryAction", True)
+
         btn_row.addWidget(self.btn_run)
         btn_row.addWidget(self.btn_reset)
 
@@ -394,7 +400,7 @@ class App(QWidget):
             QMessageBox.critical(self, "Hata", f"Excel export başarısız: {e}")
 
     # ----------------------------
-    # Tab: Simulation (NEW: O/A/B ref, slider rectangle, no blade)
+    # Tab: Simulation (FIXED: physical coordinates & link-length consistency)
     # ----------------------------
     def _build_tab_sim(self):
         lay = QVBoxLayout(self.tab_sim)
@@ -434,7 +440,7 @@ class App(QWidget):
         self.slider_rect = Rectangle((0, 0), 10.0, 6.0, linewidth=2, fill=True, zorder=4)
         self.ax_sim.add_patch(self.slider_rect)
 
-        # Colors (consistent)
+        # Colors
         self.line_L1.set_color("#4D4D4D")
         self.line_L2.set_color("#4D4D4D")
         self.line_rail.set_color("#777777")
@@ -484,24 +490,43 @@ class App(QWidget):
         s = float(self.out["S34"][k])
         th1 = float(np.rad2deg(self.out["theta1"][k]))
         th2 = float(np.rad2deg(self.out["theta2"][k]))
-        self.sim_info.setText(f"t={t:.4f}s | Stroke={s:.2f}mm | θ1={th1:.2f}° | θ2={th2:.2f}°")
+
+        # Optional sanity check display (non-intrusive)
+        L1_now = float(np.hypot(B[0] - A[0], B[1] - A[1]))
+        L2_now = float(np.hypot(B[0] - O[0], B[1] - O[1]))
+        self.sim_info.setText(
+            f"t={t:.4f}s | Stroke={s:.2f}mm | θ1={th1:.2f}° | θ2={th2:.2f}° | "
+            f"|AB|={L1_now:.3f} | |OB|={L2_now:.3f}"
+        )
 
         self.canvas_sim.draw()
 
     def _prepare_sim(self, out: dict, p: Params):
-        # Reference (user confirmed):
-        # O = (-D2, Btot) fixed
-        # A = (-(S + D1), 0)
-        # B = (Ox + L2*cos(theta2), Oy - L2*sin(theta2))
+        """
+        Physical reference (as confirmed):
+          S_phys = S + D1
+          B_tot  = H1 + H2
+          A = (-S_phys, 0)
+          O = (-D2, B_tot)
+          B = (-S_phys + L1*cos(theta1), L1*sin(theta1))
+
+        This guarantees |AB| = L1 by construction and keeps the drawing consistent
+        with the declared physical model. |OB| = L2 should also hold if solution is consistent.
+        """
         S = out["S34"]
-        th2 = out["theta2"]
+        th1 = out["theta1"]
         Btot = p.H1 + p.H2
 
         O = np.array([-p.D2, Btot], dtype=float)
-        A = np.column_stack([-(S + p.D1), np.zeros_like(S)])
 
-        Bx = O[0] + p.L2 * np.cos(th2)
-        By = O[1] - p.L2 * np.sin(th2)
+        # A = (-(S + D1), 0)
+        Ax = -(S + p.D1)
+        Ay = np.zeros_like(S)
+        A = np.column_stack([Ax, Ay])
+
+        # B = (Ax + L1*cos(th1), L1*sin(th1))
+        Bx = Ax + p.L1 * np.cos(th1)
+        By = p.L1 * np.sin(th1)
         B = np.column_stack([Bx, By])
 
         self.sim_O = O
@@ -514,7 +539,7 @@ class App(QWidget):
         xmax, ymax = all_pts.max(axis=0)
 
         span = float(max(xmax - xmin, ymax - ymin))
-        pad = 0.25 * max(1.0, span)  # generous padding for clarity
+        pad = 0.25 * max(1.0, span)
 
         self.sim_xlim = (xmin - pad, xmax + pad)
         self.sim_ylim = (min(-pad * 0.15, ymin - pad * 0.15), ymax + pad)
@@ -528,7 +553,7 @@ class App(QWidget):
         self._sim_update(0)
 
     # ----------------------------
-    # Tab: Equations (placeholder until you approve final layout)
+    # Tab: Equations (FINAL formatted; readable + fast)
     # ----------------------------
     def _build_tab_equations(self):
         lay = QVBoxLayout(self.tab_eq)
@@ -539,18 +564,68 @@ class App(QWidget):
         tb = QTextBrowser()
         tb.setOpenExternalLinks(False)
 
-        # TODO: After your approval, replace this HTML with the final formatted version.
-        HTML_PLACEHOLDER = """
-        <div style="font-family:Segoe UI, Arial; font-size:12pt; line-height:1.55; padding:14px;">
-          <div style="color:#005F2C; font-weight:700; font-size:14pt; margin-bottom:8px;">
-            Denklemler Sekmesi (Onay Sonrası Son Düzen)
+        # Note: keep content same; improve layout/readability.
+        html = """
+        <div style="font-family:Segoe UI, Arial; font-size:12pt; line-height:1.55; padding:14px; color:#1A1A1A;">
+          <div style="color:#005F2C; font-weight:800; font-size:15pt; margin-bottom:10px;">
+            Denklemler Sekmesi
           </div>
-          <div style="opacity:0.85;">
-            Bu alan, senin onayladığın final yerleşim metniyle güncellenecek.
+
+          <div style="margin:10px 0 6px; font-weight:800; color:#005F2C;">Konum Denklemleri</div>
+          <div style="padding:10px 12px; border:1px solid #3A3A3A; border-radius:8px; background:#F4F6F5;">
+            <div style="font-family:Consolas, 'Courier New', monospace; font-size:12pt;">
+              D2 − (S + D1) + L1·cos(θ1) + L2·cos(θ2) = 0
+            </div>
+            <div style="height:8px;"></div>
+            <div style="font-family:Consolas, 'Courier New', monospace; font-size:12pt;">
+              −(H1 + H2) + L1·sin(θ1) + L2·sin(θ2) = 0
+            </div>
           </div>
+
+          <div style="margin:14px 0 6px; font-weight:800; color:#005F2C;">Hız Denklemleri</div>
+          <div style="padding:10px 12px; border:1px solid #3A3A3A; border-radius:8px; background:#F4F6F5;">
+            <div style="font-family:Consolas, 'Courier New', monospace; font-size:12pt;">
+              −L1·sin(θ1)·θ̇1 − L2·sin(θ2)·θ̇2 = Ṡ
+            </div>
+            <div style="height:8px;"></div>
+            <div style="font-family:Consolas, 'Courier New', monospace; font-size:12pt;">
+              L1·cos(θ1)·θ̇1 + L2·cos(θ2)·θ̇2 = 0
+            </div>
+          </div>
+
+          <div style="margin:14px 0 6px; font-weight:800; color:#005F2C;">İvme Denklemleri</div>
+          <div style="padding:10px 12px; border:1px solid #3A3A3A; border-radius:8px; background:#F4F6F5;">
+            <div style="font-family:Consolas, 'Courier New', monospace; font-size:12pt;">
+              −L1·sin(θ1)·θ̈1 − L2·sin(θ2)·θ̈2 = S̈ + L1·cos(θ1)·(θ̇1)² + L2·cos(θ2)·(θ̇2)²
+            </div>
+            <div style="height:8px;"></div>
+            <div style="font-family:Consolas, 'Courier New', monospace; font-size:12pt;">
+              L1·cos(θ1)·θ̈1 + L2·cos(θ2)·θ̈2 = L1·sin(θ1)·(θ̇1)² + L2·sin(θ2)·(θ̇2)²
+            </div>
+          </div>
+
+          <div style="margin:14px 0 6px; font-weight:800; color:#005F2C;">Bıçak İlişkileri</div>
+          <div style="padding:10px 12px; border:1px solid #3A3A3A; border-radius:8px; background:#F4F6F5;">
+            <div style="font-family:Consolas, 'Courier New', monospace; font-size:12pt;">
+              δ<sub>tip</sub> = arctan(H2 / D2)
+            </div>
+            <div style="height:8px;"></div>
+            <div style="font-family:Consolas, 'Courier New', monospace; font-size:12pt;">
+              θ<sub>bıçak</sub> = θ2 + δ<sub>tip</sub>
+            </div>
+            <div style="height:8px;"></div>
+            <div style="font-family:Consolas, 'Courier New', monospace; font-size:12pt;">
+              θ̇<sub>bıçak</sub> = θ̇2
+            </div>
+            <div style="height:8px;"></div>
+            <div style="font-family:Consolas, 'Courier New', monospace; font-size:12pt;">
+              θ̈<sub>bıçak</sub> = θ̈2
+            </div>
+          </div>
+
         </div>
         """
-        tb.setHtml(HTML_PLACEHOLDER)
+        tb.setHtml(html)
 
         v.addWidget(tb, 1)
         lay.addWidget(box, 1)
@@ -626,8 +701,8 @@ class App(QWidget):
     def _update_summary(self, p: Params, cfg: StrokeCfg, out: dict):
         S = out["S34"]
         ang = np.rad2deg(out["theta_tip"])
-        w = np.rad2deg(out["dtheta_tip"])
-        alpha = np.rad2deg(out["ddtheta_tip"])
+        w = out["dtheta_tip"]
+        alpha = out["ddtheta_tip"]
 
         txt = []
         txt.append("Parametre Özeti")
@@ -658,8 +733,8 @@ class App(QWidget):
     def _update_plots(self, out: dict):
         S = out["S34"]
         ang = np.rad2deg(out["theta_tip"])
-        w = np.rad2deg(out["dtheta_tip"])
-        alpha = np.rad2deg(out["ddtheta_tip"])
+        w = out["dtheta_tip"])
+        alpha = out["ddtheta_tip"]
 
         self.ax_angle.clear()
         self.ax_angle.plot(S, ang, linewidth=2)
@@ -712,8 +787,8 @@ class App(QWidget):
         return [
             "Stroke (mm)",
             "Bıçak Açısı (deg)",
-            "Açısal Hız (deg/s)",
-            "Açısal İvme (deg/s^2)",
+            "Açısal Hız (rad/s)",
+            "Açısal İvme (rad/s^2)",
             "Bıçak Hızı (mm/s)",
             "Bıçak İvmesi (mm/s^2)",
             "Merkezcil İvme (mm/s^2)",
@@ -724,8 +799,8 @@ class App(QWidget):
         out = self.out
         S = out["S34"]
         ang = np.rad2deg(out["theta_tip"])
-        w = np.rad2deg(out["dtheta_tip"])
-        alpha = np.rad2deg(out["ddtheta_tip"])
+        w = out["dtheta_tip"]
+        alpha = out["ddtheta_tip"]
         v_t = out["v_tan"]
         a_t = out["a_tan"]
         a_n = out["a_norm"]
@@ -768,13 +843,17 @@ class App(QWidget):
 
     # ----------------------------
     # Apply Roketsan Theme (NO pure white)
+    # + Rev-3: buttons always green, separators darker
     # ----------------------------
     def apply_theme(self):
         # Soft palette (no #FFFFFF)
         bg = "#EEF2F0"
         card = "#EEF2F0"
         field = "#F4F6F5"
-        border = "#D7DDDA"
+
+        # Rev-3: darker separators/strips (near-black)
+        sep = "#2F2F2F"      # pane/group/separators
+        field_border = "#5A5A5A"  # inputs/tables
 
         self.setStyleSheet(f"""
         QWidget {{
@@ -782,11 +861,14 @@ class App(QWidget):
             color: #1A1A1A;
             font-size: 11pt;
         }}
+
+        /* Darker pane border (separator strips) */
         QTabWidget::pane {{
             background: {bg};
-            border: 1px solid {border};
+            border: 1px solid {sep};
             border-radius: 6px;
         }}
+
         QTabBar::tab {{
             background: #005F2C;
             color: white;
@@ -798,20 +880,33 @@ class App(QWidget):
         QTabBar::tab:selected {{
             background: #00843D;
         }}
+
+        /* Rev-3: Buttons always green (even disabled) */
         QPushButton {{
             background-color: #00843D;
             color: white;
             padding: 6px 10px;
             border-radius: 6px;
-            font-weight: 600;
+            font-weight: 700;
+            border: 1px solid #004D24;
         }}
         QPushButton:hover {{
             background-color: #005F2C;
         }}
+        QPushButton:pressed {{
+            background-color: #004D24;
+        }}
+        QPushButton:disabled {{
+            background-color: #00843D;   /* keep green */
+            color: rgba(255,255,255,230);
+            border: 1px solid #004D24;
+        }}
+
+        /* Darker group borders (separator strips) */
         QGroupBox {{
             background-color: {card};
-            font-weight: 600;
-            border: 1px solid {border};
+            font-weight: 700;
+            border: 1px solid {sep};
             margin-top: 8px;
             border-radius: 8px;
         }}
@@ -821,17 +916,21 @@ class App(QWidget):
             padding: 0 3px 0 3px;
             color: #005F2C;
         }}
+
+        /* Inputs */
         QLineEdit, QTableWidget, QTextBrowser {{
             background-color: {field};
-            border: 1px solid {border};
+            border: 1px solid {field_border};
             border-radius: 6px;
             padding: 4px 6px;
         }}
+
         QHeaderView::section {{
             background-color: {card};
-            border: 1px solid {border};
+            border: 1px solid {sep};
             padding: 6px;
         }}
+
         QScrollArea {{
             background-color: {bg};
             border: 0px;
