@@ -250,10 +250,14 @@ class App(QWidget):
 
         btn_row = QHBoxLayout()
 
+        # --- Buttons ---
         self.btn_run = QPushButton("Hesapla")
         self.btn_reset = QPushButton("Reset")
-        self.btn_run = QPushButton("Hesapla")
-
+        
+        # Connect AFTER creation (do not recreate buttons later)
+        self.btn_run.clicked.connect(self.on_run)
+        self.btn_reset.clicked.connect(self.on_reset)
+        
         # DÜMDÜZ BUTON: her durumda aynı (hover/pressed/disabled farkı yok)
         BTN_QSS = """
         QPushButton {
@@ -266,16 +270,22 @@ class App(QWidget):
         }
         QPushButton:hover { background-color: #00843D; }
         QPushButton:pressed { background-color: #00843D; }
-        QPushButton:disabled { background-color: #00843D; color: white; }
+        QPushButton:disabled {
+            background-color: #00843D;
+            color: white;
+            border: 1px solid #004D24;
+        }
         """
         
         self.btn_run.setStyleSheet(BTN_QSS)
         self.btn_reset.setStyleSheet(BTN_QSS)
         
-        # ensure these are always green-styled via theme
-        self.btn_run.setProperty("primaryAction", True)
-        self.btn_reset.setProperty("primaryAction", True)
-
+        # Prevent "default button" visuals / focus auto-press effects
+        for b in (self.btn_run, self.btn_reset):
+            b.setDefault(False)
+            b.setAutoDefault(False)
+            b.setEnabled(True)
+        
         btn_row.addWidget(self.btn_run)
         btn_row.addWidget(self.btn_reset)
 
