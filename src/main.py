@@ -918,7 +918,7 @@ class App(QWidget):
         /* FORCE: Hesapla + Reset always green (ID selector wins) */
         #BtnRun, #BtnReset {{
             background-color: #00843D;
-            color: white;
+            color: 005F2C;
             border: 1px solid #004D24;
             border-radius: 6px;
             font-weight: 700;
@@ -928,12 +928,12 @@ class App(QWidget):
             background-color: #005F2C;
         }}
         #BtnRun:pressed, #BtnReset:pressed {{
-            background-color: #004D24;
+            background-color: #005F2C;
         }}
         #BtnRun:disabled, #BtnReset:disabled {{
-            background-color: #00843D;
+            background-color: #005F2C;
             color: white;
-            border: 1px solid #004D24;
+            border: 1px solid #005F2C;
             opacity: 1.0;
         }}
     
