@@ -733,7 +733,7 @@ class App(QWidget):
     def _update_plots(self, out: dict):
         S = out["S34"]
         ang = np.rad2deg(out["theta_tip"])
-        w = out["dtheta_tip"])
+        w = out["dtheta_tip"]
         alpha = out["ddtheta_tip"]
 
         self.ax_angle.clear()
