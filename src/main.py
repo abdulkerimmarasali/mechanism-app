@@ -554,92 +554,88 @@ class App(QWidget):
         self.slider.setValue(0)
         self._sim_update(0)
 
-    def _latex_to_pixmap(self, latex: str, fontsize: int = 16, pad_px: int = 8) -> QPixmap:
-    """
-    Render a single LaTeX string to QPixmap using matplotlib mathtext.
-    latex: must be math-only (without $$), e.g. r"D_2-(S+D_1)+L_1\cos\theta_1=0"
-    """
-    # render tightly cropped
-    fig = Figure(figsize=(0.01, 0.01), dpi=200)
-    ax = fig.add_axes([0, 0, 1, 1])
-    ax.axis("off")
-
-    # MathText: wrap with $...$
-    ax.text(0.0, 0.5, f"${latex}$", fontsize=fontsize, va="center", ha="left")
-
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=200, bbox_inches="tight", pad_inches=0.08, transparent=True)
-    buf.seek(0)
-
-    pix = QPixmap()
-    pix.loadFromData(buf.read(), "PNG")
-    return pix
-
-    # ----------------------------
-    # Tab: Equations (FINAL formatted; readable + fast)
-    # ----------------------------
+    
+    def _latex_to_pixmap(self, latex: str, fontsize: int = 16) -> QPixmap:
+        """
+        Render a single LaTeX string to QPixmap using matplotlib mathtext.
+        latex: math-only (without $$), e.g. r"D_2-(S+D_1)+L_1\\cos(\\theta_1)=0"
+        """
+        fig = Figure(figsize=(0.01, 0.01), dpi=200)
+        ax = fig.add_axes([0, 0, 1, 1])
+        ax.axis("off")
+    
+        # MathText: wrap with $...$
+        ax.text(0.0, 0.5, f"${latex}$", fontsize=fontsize, va="center", ha="left")
+    
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=200, bbox_inches="tight", pad_inches=0.08, transparent=True)
+        buf.seek(0)
+    
+        pix = QPixmap()
+        pix.loadFromData(buf.read(), "PNG")
+        return pix
+    
+    
     def _build_tab_equations(self):
-    # Single clean page: no extra groupbox nesting, no duplicated "Denklemler"
-    outer = QVBoxLayout(self.tab_eq)
-    outer.setContentsMargins(10, 10, 10, 10)
-    outer.setSpacing(10)
-
-    # Container with a single border (no double boxes)
-    panel = QWidget()
-    panel.setObjectName("EqPanel")
-    panel_lay = QVBoxLayout(panel)
-    panel_lay.setContentsMargins(16, 14, 16, 14)
-    panel_lay.setSpacing(14)
-
-    title = QLabel("Denklemler Sekmesi")
-    title.setStyleSheet("font-weight:800; font-size:16pt; color:#005F2C;")
-    panel_lay.addWidget(title)
-
-    def add_section(header: str, latex_lines: list[str]):
-        h = QLabel(header)
-        h.setStyleSheet("font-weight:800; font-size:12.5pt; color:#005F2C; margin-top:6px;")
-        panel_lay.addWidget(h)
-
-        # each equation line as LaTeX pixmap (fast + clean)
-        for s in latex_lines:
-            lbl = QLabel()
-            lbl.setPixmap(self._latex_to_pixmap(s, fontsize=16))
-            lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-            lbl.setStyleSheet("background: transparent;")
-            panel_lay.addWidget(lbl)
-
-    add_section("Konum Denklemleri", [
-        r"D_2-(S+D_1)+L_1\cos(\theta_1)+L_2\cos(\theta_2)=0",
-        r"-(H_1+H_2)+L_1\sin(\theta_1)+L_2\sin(\theta_2)=0",
-    ])
-
-    add_section("Hız Denklemleri", [
-        r"-L_1\sin(\theta_1)\,\dot{\theta}_1 - L_2\sin(\theta_2)\,\dot{\theta}_2 = \dot{S}",
-        r"L_1\cos(\theta_1)\,\dot{\theta}_1 + L_2\cos(\theta_2)\,\dot{\theta}_2 = 0",
-    ])
-
-    add_section("İvme Denklemleri", [
-        r"-L_1\sin(\theta_1)\,\ddot{\theta}_1 - L_2\sin(\theta_2)\,\ddot{\theta}_2"
-        r"=\ddot{S}+L_1\cos(\theta_1)\,\dot{\theta}_1^{2}+L_2\cos(\theta_2)\,\dot{\theta}_2^{2}",
-        r"L_1\cos(\theta_1)\,\ddot{\theta}_1 + L_2\cos(\theta_2)\,\ddot{\theta}_2"
-        r"=L_1\sin(\theta_1)\,\dot{\theta}_1^{2}+L_2\sin(\theta_2)\,\dot{\theta}_2^{2}",
-    ])
-
-    add_section("Bıçak İlişkileri", [
-        r"\delta_{tip}=\arctan\!\left(\frac{H_2}{D_2}\right)",
-        r"\theta_{b\i cak}=\theta_2+\delta_{tip}",
-        r"\dot{\theta}_{b\i cak}=\dot{\theta}_2",
-        r"\ddot{\theta}_{b\i cak}=\ddot{\theta}_2",
-    ])
-
-    panel_lay.addStretch(1)
-
-    # Scroll only if needed (keeps clean view)
-    scroll = QScrollArea()
-    scroll.setWidgetResizable(True)
-    scroll.setWidget(panel)
-
-    outer.addWidget(scroll, 1)
+        # Clean page: no extra groupbox nesting, no duplicated "Denklemler"
+        outer = QVBoxLayout(self.tab_eq)
+        outer.setContentsMargins(10, 10, 10, 10)
+        outer.setSpacing(10)
+    
+        panel = QWidget()
+        panel.setObjectName("EqPanel")
+        panel_lay = QVBoxLayout(panel)
+        panel_lay.setContentsMargins(16, 14, 16, 14)
+        panel_lay.setSpacing(14)
+    
+        title = QLabel("Denklemler Sekmesi")
+        title.setStyleSheet("font-weight:800; font-size:16pt; color:#005F2C;")
+        panel_lay.addWidget(title)
+    
+        def add_section(header: str, latex_lines: list[str]):
+            h = QLabel(header)
+            h.setStyleSheet("font-weight:800; font-size:12.5pt; color:#005F2C; margin-top:6px;")
+            panel_lay.addWidget(h)
+    
+            for s in latex_lines:
+                lbl = QLabel()
+                lbl.setPixmap(self._latex_to_pixmap(s, fontsize=16))
+                lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+                lbl.setStyleSheet("background: transparent;")
+                panel_lay.addWidget(lbl)
+    
+        add_section("Konum Denklemleri", [
+            r"D_2-(S+D_1)+L_1\cos(\theta_1)+L_2\cos(\theta_2)=0",
+            r"-(H_1+H_2)+L_1\sin(\theta_1)+L_2\sin(\theta_2)=0",
+        ])
+    
+        add_section("Hız Denklemleri", [
+            r"-L_1\sin(\theta_1)\,\dot{\theta}_1 - L_2\sin(\theta_2)\,\dot{\theta}_2 = \dot{S}",
+            r"L_1\cos(\theta_1)\,\dot{\theta}_1 + L_2\cos(\theta_2)\,\dot{\theta}_2 = 0",
+        ])
+    
+        add_section("İvme Denklemleri", [
+            r"-L_1\sin(\theta_1)\,\ddot{\theta}_1 - L_2\sin(\theta_2)\,\ddot{\theta}_2"
+            r"=\ddot{S}+L_1\cos(\theta_1)\,\dot{\theta}_1^{2}+L_2\cos(\theta_2)\,\dot{\theta}_2^{2}",
+            r"L_1\cos(\theta_1)\,\ddot{\theta}_1 + L_2\cos(\theta_2)\,\ddot{\theta}_2"
+            r"=L_1\sin(\theta_1)\,\dot{\theta}_1^{2}+L_2\sin(\theta_2)\,\dot{\theta}_2^{2}",
+        ])
+    
+        # Turkish "ı" in mathtext: safest is plain text subscript instead of \i
+        add_section("Bıçak İlişkileri", [
+            r"\delta_{tip}=\arctan\!\left(\frac{H_2}{D_2}\right)",
+            r"\theta_{blade}=\theta_2+\delta_{tip}",
+            r"\dot{\theta}_{blade}=\dot{\theta}_2",
+            r"\ddot{\theta}_{blade}=\ddot{\theta}_2",
+        ])
+    
+        panel_lay.addStretch(1)
+    
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(panel)
+    
+        outer.addWidget(scroll, 1)
 
     # ----------------------------
     # Run simulation and update tabs
